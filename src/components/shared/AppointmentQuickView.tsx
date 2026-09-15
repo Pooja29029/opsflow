@@ -83,8 +83,11 @@ export default function AppointmentQuickView({ appointmentId, onClose }: Appoint
       try {
         const res = await fetch(`/api/appointments/${appointmentId}`);
         if (!res.ok) {
-          const d = await res.json();
-          throw new Error(d.error ?? "Appointment not found");
+          // Error responses aren't always JSON (a 500 can be an HTML page) —
+          // parse defensively so we show a clean message, not a JSON-parse error.
+          let msg = `Failed to load appointment (HTTP ${res.status})`;
+          try { const d = await res.json(); if (d?.error) msg = d.error; } catch { /* non-JSON body */ }
+          throw new Error(msg);
         }
         const data = await res.json();
         setAppt(data.appointment);

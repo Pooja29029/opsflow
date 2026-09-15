@@ -82,8 +82,11 @@ export default function OrderQuickView({ orderId, onClose }: OrderQuickViewProps
       try {
         const res = await fetch(`/api/orders/${orderId}`);
         if (!res.ok) {
-          const d = await res.json();
-          throw new Error(d.error ?? "Order not found");
+          // Error responses aren't always JSON (a 500 can be an HTML page) —
+          // parse defensively so we show a clean message, not a JSON-parse error.
+          let msg = `Failed to load order (HTTP ${res.status})`;
+          try { const d = await res.json(); if (d?.error) msg = d.error; } catch { /* non-JSON body */ }
+          throw new Error(msg);
         }
         const data = await res.json();
         setOrder(data.order);
