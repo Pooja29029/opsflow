@@ -18,6 +18,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { formatISTTimestamp, titleToIST } from "@/lib/utils/timezone";
 import TaskDetailPanel from "@/components/agent/TaskDetailPanel";
 import OrderQuickView from "@/components/shared/OrderQuickView";
@@ -250,6 +251,19 @@ function AssigneeChip({
 }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  // Flip the menu upward when the chip sits low in the viewport, so the
+  // agent list isn't clipped off the bottom of the panel.
+  const [dropUp, setDropUp] = useState(false);
+  const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null);
+  const anchorRef = useRef<HTMLDivElement>(null);
+  const toggleOpen = () => {
+    if (!open && anchorRef.current) {
+      const r = anchorRef.current.getBoundingClientRect();
+      setAnchorRect(r);
+      setDropUp(window.innerHeight - r.bottom < 320);
+    }
+    setOpen((v) => !v);
+  };
 
   // Read-only mode for agents: render a static badge with no popover.
   if (!canReassign) {
@@ -295,10 +309,10 @@ function AssigneeChip({
   };
 
   return (
-    <div className="relative shrink-0" onClick={(e) => e.stopPropagation()}>
+    <div ref={anchorRef} className="relative shrink-0" onClick={(e) => e.stopPropagation()}>
       {task.assignedTo ? (
         <button
-          onClick={() => setOpen((v) => !v)}
+          onClick={toggleOpen}
           className="flex items-center gap-1.5 px-1.5 py-0.5 rounded hover:bg-zinc-700/50 transition-colors"
           title="Click to reassign"
         >
@@ -311,7 +325,7 @@ function AssigneeChip({
         </button>
       ) : (
         <button
-          onClick={() => setOpen((v) => !v)}
+          onClick={toggleOpen}
           className="px-2 py-0.5 rounded text-[11px] bg-yellow-900/40 text-yellow-300 border border-yellow-900/40 hover:bg-yellow-900/60 transition-colors"
           title="Click to assign"
         >
@@ -319,8 +333,21 @@ function AssigneeChip({
         </button>
       )}
 
-      {open && (
-        <div className="absolute right-0 top-full mt-1 z-20 w-56 bg-zinc-900 border border-zinc-700 rounded-lg shadow-xl py-1 max-h-72 overflow-y-auto">
+      {open && anchorRect && createPortal(
+        // Rendered in a portal with fixed positioning so the menu escapes the
+        // Focus/zone card's `overflow-hidden` (which used to clip it off the
+        // bottom of the panel). Flips above the chip when it sits low.
+        <div
+          onClick={(e) => e.stopPropagation()}
+          style={{
+            position: "fixed",
+            left: Math.max(8, anchorRect.right - 224),
+            ...(dropUp
+              ? { bottom: window.innerHeight - anchorRect.top + 4 }
+              : { top: anchorRect.bottom + 4 }),
+          }}
+          className="z-[100] w-56 bg-zinc-900 border border-zinc-700 rounded-lg shadow-xl py-1 max-h-72 overflow-y-auto"
+        >
           <div className="px-3 py-1.5 text-[10px] uppercase tracking-wider text-zinc-500 border-b border-zinc-800">
             {busy ? "Reassigning…" : task.assignedTo ? "Reassign to" : "Assign to"}
           </div>
@@ -342,7 +369,8 @@ function AssigneeChip({
               </button>
             ))
           )}
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );
