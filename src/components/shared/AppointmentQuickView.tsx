@@ -5,7 +5,7 @@ import StatusBadge from "@/components/shared/StatusBadge";
 import PriorityBadge from "@/components/shared/PriorityBadge";
 import SlaCountdown from "@/components/shared/SlaCountdown";
 import TaskChecklistView, { type ChecklistViewItem } from "@/components/shared/TaskChecklistView";
-import { formatISTTimestamp, formatISTDate } from "@/lib/utils/timezone";
+import { formatISTTimestamp, formatISTDate, titleToIST } from "@/lib/utils/timezone";
 
 // The Appointments-source analogue of OrderQuickView. Heads open this for an
 // appointment task so the drawer shows appointment context (date/time, doctor +
@@ -219,7 +219,7 @@ export default function AppointmentQuickView({ appointmentId, onClose }: Appoint
                       <div key={task.id} className="bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-3">
                         <div className="flex items-start justify-between gap-2 mb-2">
                           <div className="flex-1 min-w-0">
-                            <div className="text-xs font-medium text-zinc-200 leading-snug">{task.title}</div>
+                            <div className="text-xs font-medium text-zinc-200 leading-snug">{titleToIST(task.title)}</div>
                             <div className="text-[10px] text-zinc-600 mt-0.5">
                               #{task.id} · {task.taskType?.label ?? "Task"}
                             </div>

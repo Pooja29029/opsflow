@@ -18,7 +18,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { formatISTTimestamp } from "@/lib/utils/timezone";
+import { formatISTTimestamp, titleToIST } from "@/lib/utils/timezone";
 import TaskDetailPanel from "@/components/agent/TaskDetailPanel";
 import OrderQuickView from "@/components/shared/OrderQuickView";
 import AppointmentQuickView from "@/components/shared/AppointmentQuickView";
@@ -448,7 +448,7 @@ function TaskRow({
       </span>
 
       <div className="flex-1 min-w-0">
-        <div className="font-medium text-sm text-zinc-100 truncate">{task.title}</div>
+        <div className="font-medium text-sm text-zinc-100 truncate">{titleToIST(task.title)}</div>
         <div className="text-xs text-zinc-500 mt-0.5">#{task.entityId}</div>
       </div>
 
@@ -1263,7 +1263,7 @@ function StuckView({ tasks, now, agents, canReassign, onRowClick, onReassign, on
                 <div className="text-[10px] text-zinc-600 uppercase tracking-wider">stuck</div>
               </div>
               <div className="flex-1 min-w-0 cursor-pointer" onClick={() => onRowClick(t)} role="button" tabIndex={0}>
-                <div className="font-medium text-sm text-zinc-100 truncate">{t.title}</div>
+                <div className="font-medium text-sm text-zinc-100 truncate">{titleToIST(t.title)}</div>
                 <div className="text-xs text-zinc-500 mt-0.5">
                   #{t.entityId}{storeNameOf(t) ? ` · ${storeNameOf(t)}` : ""}
                 </div>

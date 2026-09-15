@@ -7,7 +7,7 @@ import PriorityBadge from "@/components/shared/PriorityBadge";
 import StatusBadge from "@/components/shared/StatusBadge";
 import OrderQuickView from "@/components/shared/OrderQuickView";
 import AssignmentAuditTrail from "@/components/shared/AssignmentAuditTrail";
-import { formatISTTimestamp } from "@/lib/utils/timezone";
+import { formatISTTimestamp, titleToIST } from "@/lib/utils/timezone";
 
 interface ChecklistItem {
   id: number;
@@ -442,7 +442,7 @@ export default function TaskDetailPanel({ task, onUpdate }: TaskDetailPanelProps
       <div className="px-6 pt-5 pb-4 border-b border-zinc-800">
         <div className="flex items-start gap-3 mb-3">
           <div className="flex-1 min-w-0">
-            <h2 className="text-base font-semibold text-white leading-snug">{displayedTask.title}</h2>
+            <h2 className="text-base font-semibold text-white leading-snug">{titleToIST(displayedTask.title)}</h2>
             <div className="flex items-center gap-2 mt-1.5">
               <StatusBadge status={displayedTask.status} />
               <PriorityBadge priority={displayedTask.priority} size="sm" />
