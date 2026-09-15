@@ -5,6 +5,7 @@ import StatusBadge from "@/components/shared/StatusBadge";
 import PriorityBadge from "@/components/shared/PriorityBadge";
 import SlaCountdown from "@/components/shared/SlaCountdown";
 import TaskChecklistView, { type ChecklistViewItem } from "@/components/shared/TaskChecklistView";
+import CallButton from "@/components/shared/CallButton";
 import { formatISTTimestamp, formatISTDate, titleToIST } from "@/lib/utils/timezone";
 
 interface OrderDetail {
@@ -171,7 +172,12 @@ export default function OrderQuickView({ orderId, onClose }: OrderQuickViewProps
                   <InfoRow label="Store" value={order.storeName ?? (order.storeId ? `#${order.storeId}` : null)} />
                   <InfoRow label="Lab" value={order.labName ?? (order.labId ? `#${order.labId}` : null)} />
                   <InfoRow label="Phlebo" value={
-                    order.phleboName ? `${order.phleboName}${order.phleboNumber ? ` (${order.phleboNumber})` : ""}` : null
+                    order.phleboName ? (
+                      <span>
+                        {order.phleboName}{order.phleboNumber ? ` (${order.phleboNumber})` : ""}
+                        {order.phleboNumber && <> <CallButton to={order.phleboNumber} name={order.phleboName} triggeredFrom="order-phlebo" /></>}
+                      </span>
+                    ) : null
                   } />
                   <InfoRow label="Created" value={formatISTDate(order.createdAt)} />
                   <InfoRow label="Last Updated" value={formatISTTimestamp(order.updatedAt, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })} />

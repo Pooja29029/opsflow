@@ -5,6 +5,7 @@ import StatusBadge from "@/components/shared/StatusBadge";
 import PriorityBadge from "@/components/shared/PriorityBadge";
 import SlaCountdown from "@/components/shared/SlaCountdown";
 import TaskChecklistView, { type ChecklistViewItem } from "@/components/shared/TaskChecklistView";
+import CallButton from "@/components/shared/CallButton";
 import { formatISTTimestamp, formatISTDate, titleToIST } from "@/lib/utils/timezone";
 
 // The Appointments-source analogue of OrderQuickView. Heads open this for an
@@ -157,7 +158,11 @@ export default function AppointmentQuickView({ appointmentId, onClose }: Appoint
                 <h3 className="text-[10px] font-semibold text-zinc-500 uppercase tracking-widest mb-3">Patient</h3>
                 <div className="space-y-2">
                   <InfoRow label="Name" value={appt.patientName} />
-                  <InfoRow label="Contact" value={appt.patientMobile} />
+                  <InfoRow label="Contact" value={
+                    appt.patientMobile
+                      ? <span>{appt.patientMobile} <CallButton to={appt.patientMobile} name={appt.patientName} triggeredFrom="appt-patient" /></span>
+                      : null
+                  } />
                 </div>
               </div>
 
@@ -171,7 +176,11 @@ export default function AppointmentQuickView({ appointmentId, onClose }: Appoint
                       : null
                   } />
                   <InfoRow label="Doctor" value={appt.doctorName} />
-                  <InfoRow label="Doctor Contact" value={appt.doctorMobile} />
+                  <InfoRow label="Doctor Contact" value={
+                    appt.doctorMobile
+                      ? <span>{appt.doctorMobile} <CallButton to={appt.doctorMobile} name={appt.doctorName} triggeredFrom="appt-doctor" /></span>
+                      : null
+                  } />
                   <InfoRow label="Store" value={appt.storeName} />
                   <InfoRow label="Reference" value={appt.referenceId} />
                   {appt.appointmentUrl && (

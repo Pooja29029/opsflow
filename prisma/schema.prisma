@@ -115,8 +115,54 @@ model User {
   dataSourcesCreated      DataSource[]          @relation("DataSourceCreatedBy")
   ruleSourceScopesCreated TaskRuleSourceScope[] @relation("RuleSourceScopeCreatedBy")
   alerts                  Alert[]
+  calls                   CallLog[]
 
   @@map("users")
+}
+
+// ─────────────────────────────────────────────
+// CLICK-TO-CALL (Exotel)
+// ─────────────────────────────────────────────
+
+enum CallSource {
+  EXOTEL
+}
+
+enum CallStatus {
+  INITIATED
+  RINGING
+  ANSWERED
+  COMPLETED
+  FAILED
+  BUSY
+  NO_ANSWER
+  CANCELED
+}
+
+model CallLog {
+  id             Int        @id @default(autoincrement())
+  source         CallSource @default(EXOTEL)
+  status         CallStatus @default(INITIATED)
+  sourceMobile   String // the agent's phone Exotel dials first
+  targetMobile   String // the patient/doctor/phlebo being called
+  targetUserName String?
+  userId         Int? // the OpsFlow user who placed the call
+  storeId        Int?
+  taskId         Int?
+  triggeredFrom  String? // where in the UI the call was started
+  sid            String? // Exotel CallSid
+  recordingUrl   String?
+  durationSec    Int?
+  errorMessage   String?
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([taskId])
+  @@index([sid])
+  @@map("call_logs")
 }
 
 model Session {

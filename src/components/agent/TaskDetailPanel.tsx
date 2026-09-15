@@ -8,6 +8,7 @@ import StatusBadge from "@/components/shared/StatusBadge";
 import OrderQuickView from "@/components/shared/OrderQuickView";
 import AssignmentAuditTrail from "@/components/shared/AssignmentAuditTrail";
 import { formatISTTimestamp, titleToIST } from "@/lib/utils/timezone";
+import CallButton from "@/components/shared/CallButton";
 
 interface ChecklistItem {
   id: number;
@@ -517,10 +518,14 @@ export default function TaskDetailPanel({ task, onUpdate }: TaskDetailPanelProps
               { label: "Type", value: (apptContext?.appointmentType || displayedTask.orderType || "—").replace(/_/g, " ") },
               { label: "Status", value: apptContext?.appointmentStatus || (meta.orderStatus as string) || "—" },
               { label: "Doctor", value: apptContext?.doctorName || "—" },
-              { label: "Doctor Contact", value: apptContext?.doctorMobile || "—" },
+              { label: "Doctor Contact", value: apptContext?.doctorMobile
+                  ? <span>{apptContext.doctorMobile} <CallButton to={apptContext.doctorMobile} name={apptContext.doctorName} taskId={displayedTask.id} triggeredFrom="appt-doctor" /></span>
+                  : "—" },
               { label: "Store", value: apptContext?.storeName || "—" },
               { label: "Reference", value: apptContext?.referenceId || "—" },
-              { label: "Patient Contact", value: apptContext?.patientMobile || "—" },
+              { label: "Patient Contact", value: apptContext?.patientMobile
+                  ? <span>{apptContext.patientMobile} <CallButton to={apptContext.patientMobile} name={apptContext.patientName} taskId={displayedTask.id} triggeredFrom="appt-patient" /></span>
+                  : "—" },
             ].map(({ label, value }) => (
               <div key={label}>
                 <div className="text-[10px] text-zinc-600 uppercase tracking-wider">{label}</div>
@@ -555,7 +560,9 @@ export default function TaskDetailPanel({ task, onUpdate }: TaskDetailPanelProps
               { label: "Lab", value: (meta.labName as string) || "—" },
               { label: "Store", value: (meta.storeName as string) || "—" },
               { label: "Phlebo", value: (meta.phleboName as string) || "Not assigned" },
-              { label: "Phone", value: (meta.phleboNumber as string) || "—" },
+              { label: "Phone", value: (meta.phleboNumber as string)
+                  ? <span>{meta.phleboNumber as string} <CallButton to={meta.phleboNumber as string} name={(meta.phleboName as string) ?? null} taskId={displayedTask.id} triggeredFrom="order-phlebo" /></span>
+                  : "—" },
               {
                 label: "Appointment",
                 value: meta.appointmentTime
