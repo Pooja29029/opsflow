@@ -9,7 +9,7 @@
     },
     {
       "name": "opsflow-dev",
-      "runtimeExecutable": "/Users/maverick/.nvm/versions/node/v20.20.2/bin/node",
+      "runtimeExecutable": "node",
       "runtimeArgs": ["node_modules/next/dist/bin/next", "dev"],
       "autoPort": true
     }

@@ -114,8 +114,10 @@ export async function GET(
       completedAt: true,
       createdAt: true,
       metadata: true,
+      slaBreachedAt: true,
       assignedTo: { select: { id: true, name: true } },
       taskType: { select: { label: true } },
+      taskRule: { select: { name: true } },
       checklistItems: {
         orderBy: { stepOrder: "asc" },
         select: { id: true, stepOrder: true, stepText: true, isRequired: true, isDone: true, guidance: true, script: true },
