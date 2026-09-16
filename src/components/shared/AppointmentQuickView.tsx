@@ -1,12 +1,9 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
-import StatusBadge from "@/components/shared/StatusBadge";
-import PriorityBadge from "@/components/shared/PriorityBadge";
-import SlaCountdown from "@/components/shared/SlaCountdown";
-import TaskChecklistView, { type ChecklistViewItem } from "@/components/shared/TaskChecklistView";
+import { useState, useEffect, useRef, useCallback } from "react";
 import CallButton from "@/components/shared/CallButton";
-import { formatISTTimestamp, formatISTDate, titleToIST } from "@/lib/utils/timezone";
+import TaskActionCard, { type ActionableTask } from "@/components/shared/TaskActionCard";
+import { formatISTTimestamp } from "@/lib/utils/timezone";
 
 // The Appointments-source analogue of OrderQuickView. Heads open this for an
 // appointment task so the drawer shows appointment context (date/time, doctor +
@@ -30,23 +27,13 @@ interface AppointmentDetail {
   storeName: string | null;
 }
 
-interface ApptTask {
-  id: number;
-  title: string;
-  status: string;
-  priority: string;
-  slaDeadline: string;
-  completedAt: string | null;
-  createdAt: string;
-  assignedTo: { id: number; name: string } | null;
-  taskType: { label: string } | null;
-  metadata?: Record<string, unknown> | null;
-  checklistItems?: ChecklistViewItem[];
-}
+type ApptTask = ActionableTask;
 
 interface AppointmentQuickViewProps {
   appointmentId: number;
   onClose: () => void;
+  // See OrderQuickView's `variant` doc — same modal/inline split.
+  variant?: "modal" | "inline";
 }
 
 const APPT_STATUS_COLOR: Record<string, string> = {
@@ -69,37 +56,72 @@ function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
   );
 }
 
-export default function AppointmentQuickView({ appointmentId, onClose }: AppointmentQuickViewProps) {
+// Compact identity card — Patient / Doctor / Store, matching the reference
+// design's three-card layout (stacked here since the docked panel is
+// narrower than the mockup's).
+function InfoCard({
+  icon,
+  label,
+  name,
+  sub,
+  action,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  name: React.ReactNode;
+  sub?: React.ReactNode;
+  action?: React.ReactNode;
+}) {
+  return (
+    <div className="bg-zinc-800/60 border border-zinc-700 rounded-lg px-3 py-3">
+      <div className="flex items-center gap-1.5 text-[10px] text-zinc-500 uppercase tracking-wider mb-1.5">
+        <span className="w-3.5 h-3.5 text-zinc-500">{icon}</span>
+        {label}
+      </div>
+      <div className="text-sm font-medium text-zinc-100 truncate">{name}</div>
+      {sub && <div className="text-xs text-zinc-500 mt-0.5">{sub}</div>}
+      {action && <div className="mt-1.5">{action}</div>}
+    </div>
+  );
+}
+
+const PERSON_ICON = (
+  <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
+);
+const STORE_ICON = (
+  <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M3 9.5L12 3l9 6.5V21a1 1 0 01-1 1h-5v-6H9v6H4a1 1 0 01-1-1V9.5z" /></svg>
+);
+
+export default function AppointmentQuickView({ appointmentId, onClose, variant = "modal" }: AppointmentQuickViewProps) {
   const [appt, setAppt] = useState<AppointmentDetail | null>(null);
   const [tasks, setTasks] = useState<ApptTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    async function load() {
-      setLoading(true);
-      setError(null);
-      try {
-        const res = await fetch(`/api/appointments/${appointmentId}`);
-        if (!res.ok) {
-          // Error responses aren't always JSON (a 500 can be an HTML page) —
-          // parse defensively so we show a clean message, not a JSON-parse error.
-          let msg = `Failed to load appointment (HTTP ${res.status})`;
-          try { const d = await res.json(); if (d?.error) msg = d.error; } catch { /* non-JSON body */ }
-          throw new Error(msg);
-        }
-        const data = await res.json();
-        setAppt(data.appointment);
-        setTasks(data.tasks ?? []);
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "Failed to load appointment");
-      } finally {
-        setLoading(false);
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/appointments/${appointmentId}`);
+      if (!res.ok) {
+        // Error responses aren't always JSON (a 500 can be an HTML page) —
+        // parse defensively so we show a clean message, not a JSON-parse error.
+        let msg = `Failed to load appointment (HTTP ${res.status})`;
+        try { const d = await res.json(); if (d?.error) msg = d.error; } catch { /* non-JSON body */ }
+        throw new Error(msg);
       }
+      const data = await res.json();
+      setAppt(data.appointment);
+      setTasks(data.tasks ?? []);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to load appointment");
+    } finally {
+      setLoading(false);
     }
-    load();
   }, [appointmentId]);
+
+  useEffect(() => { load(); }, [load]);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -111,13 +133,21 @@ export default function AppointmentQuickView({ appointmentId, onClose }: Appoint
 
   return (
     <>
-      {/* Backdrop */}
-      <div className="fixed inset-0 bg-black/50 z-40" onClick={onClose} />
+      {/* Backdrop — modal only; the inline variant docks in a caller-sized
+          column with nothing behind it to dim. */}
+      {variant === "modal" && (
+        <div className="fixed inset-0 bg-black/50 z-40" onClick={onClose} />
+      )}
 
-      {/* Slide-over panel */}
+      {/* Panel — fixed slide-over for "modal", plain full-height block for
+          "inline" (caller provides width/border/positioning). */}
       <div
         ref={panelRef}
-        className="fixed right-0 top-0 h-full w-full max-w-md bg-zinc-900 border-l border-zinc-700 shadow-2xl z-50 flex flex-col"
+        className={
+          variant === "modal"
+            ? "fixed right-0 top-0 h-full w-full max-w-md bg-zinc-900 border-l border-zinc-700 shadow-2xl z-50 flex flex-col"
+            : "h-full w-full bg-zinc-900 flex flex-col"
+        }
       >
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-800 shrink-0">
@@ -155,18 +185,27 @@ export default function AppointmentQuickView({ appointmentId, onClose }: Appoint
               <div className="px-4 py-3 bg-red-500/10 border border-red-500/20 rounded-lg text-sm text-red-400">{error}</div>
             </div>
           ) : appt ? (
-            <div className="px-5 py-5 space-y-6">
-              {/* Patient */}
-              <div>
-                <h3 className="text-[10px] font-semibold text-zinc-500 uppercase tracking-widest mb-3">Patient</h3>
-                <div className="space-y-2">
-                  <InfoRow label="Name" value={appt.patientName} />
-                  <InfoRow label="Contact" value={
-                    appt.patientMobile
-                      ? <span>{appt.patientMobile} <CallButton to={appt.patientMobile} name={appt.patientName} triggeredFrom="appt-patient" /></span>
-                      : null
-                  } />
-                </div>
+            <div className="px-5 py-5 space-y-5">
+              {/* Identity cards — Patient full-width (has a real callable
+                  number here, unlike the Order view), Doctor + Store paired. */}
+              <InfoCard
+                icon={PERSON_ICON}
+                label="Patient"
+                name={appt.patientName ?? "—"}
+                action={appt.patientMobile && (
+                  <CallButton to={appt.patientMobile} name={appt.patientName} triggeredFrom="appt-patient" />
+                )}
+              />
+              <div className="grid grid-cols-2 gap-3">
+                <InfoCard
+                  icon={PERSON_ICON}
+                  label="Doctor"
+                  name={appt.doctorName ?? "—"}
+                  action={appt.doctorMobile && (
+                    <CallButton to={appt.doctorMobile} name={appt.doctorName} triggeredFrom="appt-doctor" />
+                  )}
+                />
+                <InfoCard icon={STORE_ICON} label="Store" name={appt.storeName ?? "—"} />
               </div>
 
               {/* Appointment */}
@@ -178,13 +217,6 @@ export default function AppointmentQuickView({ appointmentId, onClose }: Appoint
                       ? formatISTTimestamp(appt.appointmentDate, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })
                       : null
                   } />
-                  <InfoRow label="Doctor" value={appt.doctorName} />
-                  <InfoRow label="Doctor Contact" value={
-                    appt.doctorMobile
-                      ? <span>{appt.doctorMobile} <CallButton to={appt.doctorMobile} name={appt.doctorName} triggeredFrom="appt-doctor" /></span>
-                      : null
-                  } />
-                  <InfoRow label="Store" value={appt.storeName} />
                   <InfoRow label="Reference" value={appt.referenceId} />
                   {appt.appointmentUrl && (
                     <InfoRow label="Meeting" value={
@@ -228,32 +260,7 @@ export default function AppointmentQuickView({ appointmentId, onClose }: Appoint
                 ) : (
                   <div className="space-y-2">
                     {tasks.map((task) => (
-                      <div key={task.id} className="bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-3">
-                        <div className="flex items-start justify-between gap-2 mb-2">
-                          <div className="flex-1 min-w-0">
-                            <div className="text-xs font-medium text-zinc-200 leading-snug">{titleToIST(task.title)}</div>
-                            <div className="text-[10px] text-zinc-600 mt-0.5">
-                              #{task.id} · {task.taskType?.label ?? "Task"}
-                            </div>
-                          </div>
-                          <StatusBadge status={task.status as never} />
-                        </div>
-                        <div className="flex items-center gap-3">
-                          <PriorityBadge priority={task.priority as never} />
-                          <span className="text-[10px] text-zinc-500">
-                            {task.assignedTo ? task.assignedTo.name : "Unassigned"}
-                          </span>
-                          {task.status !== "COMPLETED" && task.status !== "CANCELLED" && (
-                            <SlaCountdown deadline={task.slaDeadline} compact />
-                          )}
-                          {task.completedAt && (
-                            <span className="text-[10px] text-emerald-500">
-                              Done {formatISTTimestamp(task.completedAt, { hour: "2-digit", minute: "2-digit" })}
-                            </span>
-                          )}
-                        </div>
-                        <TaskChecklistView items={task.checklistItems ?? []} metadata={task.metadata} />
-                      </div>
+                      <TaskActionCard key={task.id} task={task} onChanged={load} />
                     ))}
                   </div>
                 )}

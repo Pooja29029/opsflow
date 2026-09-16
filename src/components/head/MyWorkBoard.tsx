@@ -23,6 +23,7 @@ import { formatISTTimestamp, titleToIST } from "@/lib/utils/timezone";
 import TaskDetailPanel from "@/components/agent/TaskDetailPanel";
 import OrderQuickView from "@/components/shared/OrderQuickView";
 import AppointmentQuickView from "@/components/shared/AppointmentQuickView";
+import StatusBadge from "@/components/shared/StatusBadge";
 
 // ─── Types ─────────────────────────────────────────────────────────────
 interface Agent {
@@ -117,15 +118,20 @@ const TYPE_STYLES: Record<string, string> = {
 };
 const TYPE_LABEL: Record<string, string> = {
   HOME_SAMPLE: "HSC",
-  CONSULTATION: "CONS",
+  // Renamed from "CONS" — this order type reads better as "Appointments" in
+  // the filter/row UI. It's a display-only rename: CONSULTATION orders have
+  // no online/centre/home breakdown in this data model, unlike the separate
+  // Appointments data source's types just below (which genuinely do, and
+  // get those exact labels).
+  CONSULTATION: "Appointments",
   PHARMACY: "PHARMA",
   RADIOLOGY: "RAD",
   INJECTION: "INJ",
   MANUAL: "MANUAL",
-  // Appointment types
-  CENTER_VISIT: "CENTER",
-  HOME_VISIT: "HOME",
-  ONLINE: "ONLINE",
+  // Appointment types — the real online/centre/home split.
+  CENTER_VISIT: "Centre visit",
+  HOME_VISIT: "Home visit",
+  ONLINE: "Online",
 };
 function typeStyle(orderType: string) {
   return TYPE_STYLES[orderType] ?? "bg-zinc-800 text-zinc-300";
@@ -265,20 +271,13 @@ function AssigneeChip({
     setOpen((v) => !v);
   };
 
-  // Read-only mode for agents: render a static badge with no popover.
+  // Read-only mode for agents: the /api/tasks endpoint role-scopes results
+  // so an agent only ever sees their own tasks — repeating "you" as an
+  // avatar + name on every single row is pure noise, not information.
+  // Still surface the (theoretically unreachable, but cheap to keep honest)
+  // unassigned case rather than silently dropping it.
   if (!canReassign) {
-    if (task.assignedTo) {
-      return (
-        <div className="flex items-center gap-1.5 px-1.5 py-0.5 shrink-0" title={task.assignedTo.name}>
-          <span
-            className={`w-5 h-5 rounded-full ${avatarColor(task.assignedTo.name)} flex items-center justify-center text-[9px] font-semibold text-white`}
-          >
-            {initials(task.assignedTo.name)}
-          </span>
-          <span className="text-xs text-zinc-300 max-w-[80px] truncate">{task.assignedTo.name}</span>
-        </div>
-      );
-    }
+    if (task.assignedTo) return null;
     return (
       <span className="px-2 py-0.5 rounded text-[11px] bg-yellow-900/40 text-yellow-300 border border-yellow-900/40 shrink-0">
         Unassigned
@@ -376,12 +375,94 @@ function AssigneeChip({
   );
 }
 
+// ─── Filter bar: compact dropdown pills ────────────────────────────────
+// Replaces the old always-expanded chip rows (Type/Rule/Priority/SLA each
+// on their own line) with single buttons that open a menu — same filter
+// state underneath, just one row instead of three.
+function FilterDropdown({
+  label,
+  active,
+  children,
+  widthClass = "w-56",
+}: {
+  label: string;
+  active: boolean;
+  children: (close: () => void) => React.ReactNode;
+  widthClass?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [open]);
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className={`px-3 py-1.5 rounded-lg text-xs font-medium border flex items-center gap-1.5 transition-colors whitespace-nowrap ${
+          active
+            ? "bg-blue-600 border-blue-600 text-white"
+            : "bg-zinc-800 border-zinc-700 text-zinc-300 hover:text-white hover:border-zinc-600"
+        }`}
+      >
+        {label}
+        <svg className="w-3 h-3 opacity-70 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+      {open && (
+        <div className={`absolute left-0 mt-1.5 z-40 ${widthClass} bg-zinc-900 border border-zinc-700 rounded-lg shadow-xl py-1 max-h-72 overflow-y-auto`}>
+          {children(() => setOpen(false))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function FilterOption({
+  label,
+  count,
+  active,
+  onClick,
+}: {
+  label: string;
+  count?: number;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className="w-full flex items-center justify-between gap-3 px-3 py-2 text-sm hover:bg-zinc-800 text-left transition-colors"
+    >
+      <span className={active ? "text-white font-medium" : "text-zinc-300"}>{label}</span>
+      <span className="flex items-center gap-2 shrink-0">
+        {count != null && <span className="text-zinc-500 text-xs tabular-nums">{count}</span>}
+        {active && (
+          <svg className="w-3.5 h-3.5 text-blue-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+          </svg>
+        )}
+      </span>
+    </button>
+  );
+}
+
 // ─── Row renderer ──────────────────────────────────────────────────────
 function TaskRow({
   task,
   now,
   agents,
   onClick,
+  onMouseEnter,
+  onMouseLeave,
   onReassign,
   canReassign,
   rightBadge,
@@ -391,6 +472,10 @@ function TaskRow({
   now: Date;
   agents: Agent[];
   onClick: () => void;
+  // Hover-to-preview for the detail panel — optional so previews-only
+  // renders (e.g. Tomorrow's read-only rows) can skip them.
+  onMouseEnter?: () => void;
+  onMouseLeave?: () => void;
   onReassign: (taskId: number, agentId: number | null) => void;
   canReassign: boolean;
   // Optional extra pill rendered next to SLA (used by Stuck view for age).
@@ -451,86 +536,175 @@ function TaskRow({
     const ist = new Date(d.getTime() + 5.5 * 60 * 60 * 1000);
     return `${ist.getUTCFullYear()}-${ist.getUTCMonth()}-${ist.getUTCDate()}`;
   }
-  const apptLabel = appt
-    ? (istDayKey(appt) === istDayKey(now)
-        ? formatISTTimestamp(task.appointmentTime as string, { hour: "2-digit", minute: "2-digit" })
-        : formatISTTimestamp(task.appointmentTime as string, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }))
+  const isApptToday = appt ? istDayKey(appt) === istDayKey(now) : false;
+  const apptTimeLabel = appt
+    ? formatISTTimestamp(task.appointmentTime as string, { hour: "2-digit", minute: "2-digit" })
     : "—";
+  // Non-today appts get their own date line above the time instead of one
+  // long wrapping string (e.g. "16 Sept, 07:00 am" used to wrap onto 3
+  // lines in the narrow time column — now it's a clean 2 lines).
+  const apptDateLabel = appt && !isApptToday
+    ? formatISTTimestamp(task.appointmentTime as string, { day: "numeric", month: "short" })
+    : null;
+
+  const isSnoozed = task.snoozedUntil ? new Date(task.snoozedUntil) > now : false;
+  const isPaused = task.status === "BLOCKED" || isSnoozed;
+  // Left urgency stripe — one glance at the edge of the row tells you
+  // whether it's on fire before reading anything else.
+  const stripeColor = isPaused ? "bg-zinc-700"
+    : task.slaStatus === "breached" ? "bg-red-500"
+    : task.slaStatus === "critical" ? "bg-orange-500"
+    : task.slaStatus === "warning" ? "bg-yellow-500"
+    : "bg-zinc-800";
 
   return (
     <div
-      className="flex items-center gap-3 px-5 py-3 border-b border-zinc-800 cursor-pointer hover:bg-zinc-800/40 transition-colors"
+      className="flex flex-wrap items-stretch gap-x-3 gap-y-1.5 pl-4 pr-5 py-3 border-b border-zinc-800 cursor-pointer hover:bg-zinc-800/40 transition-colors relative"
       onClick={onClick}
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
       role="button"
       tabIndex={0}
     >
-      <div className="text-center w-16 shrink-0">
-        <div className={`text-base font-semibold ${timeColor}`}>{apptLabel}</div>
-        <div className={`text-[10px] ${deltaColor} uppercase tracking-wider`}>
-          {deltaText || (appt ? "appt" : "no appt")}
+      <span className={`absolute left-0 top-0 bottom-0 w-1 ${stripeColor}`} aria-hidden />
+
+      <div className="flex items-center gap-3 flex-1 min-w-[220px]">
+        <div className="text-center w-16 shrink-0">
+          {apptDateLabel && (
+            <div className="text-[10px] text-zinc-500 leading-tight">{apptDateLabel}</div>
+          )}
+          <div className={`text-sm font-semibold leading-tight ${timeColor}`}>{apptTimeLabel}</div>
+          <div className={`text-[10px] ${deltaColor} uppercase tracking-wider`}>
+            {deltaText || (appt ? "appt" : "no appt")}
+          </div>
+        </div>
+
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="font-semibold text-sm text-zinc-100">#{task.entityId}</span>
+            <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider shrink-0 ${typeStyle(task.orderType)}`}>
+              {typeLabel(task.orderType)}
+            </span>
+            <StatusBadge status={task.status} />
+          </div>
+          <div className="text-xs text-zinc-500 mt-0.5 truncate">
+            {typeLabel(task.orderType)}{storeNameOf(task) ? ` · ${storeNameOf(task)}` : ""}
+          </div>
+          <div className="text-xs text-zinc-400 mt-0.5 truncate" title={titleToIST(task.title)}>
+            {titleToIST(task.title)}
+          </div>
         </div>
       </div>
 
-      <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider shrink-0 ${typeStyle(task.orderType)}`}>
-        {typeLabel(task.orderType)}
-      </span>
+      {/* Trailing action/status cluster — grouped so it wraps onto its own
+          line (still right-aligned via ml-auto) instead of overflowing the
+          row on narrower screens, which used to clip the SLA pill off the
+          edge of the viewport entirely. */}
+      <div className="flex items-center gap-2 shrink-0 ml-auto">
+        <AssigneeChip task={task} agents={agents} onReassign={onReassign} canReassign={canReassign} />
 
-      <div className="flex-1 min-w-0">
-        <div className="font-medium text-sm text-zinc-100 truncate">{titleToIST(task.title)}</div>
-        <div className="text-xs text-zinc-500 mt-0.5">#{task.entityId}</div>
-      </div>
+        {rightBadge}
 
-      {onComplete && task.status !== "COMPLETED" && task.status !== "CANCELLED" && (
+        {/* SLA / status pill — one urgency channel per row.
+            Rules:
+            - BLOCKED or snoozed → grey "Paused" chip. The breach-as-stick
+              is the wrong signal when an agent is correctly waiting on an
+              external party; rendering a red breach pill drives clear-not-
+              resolve theatre.
+            - Time block already coloured (appt within 90 min) → no SLA pill.
+              The time block IS the urgency signal. A second red badge
+              duplicates and dilutes it.
+            - Otherwise → original SLA pill for breached/critical/warning. */}
+        {(() => {
+          if (isPaused) {
+            return (
+              <span className="px-2 py-0.5 rounded text-[11px] bg-zinc-800 text-zinc-400 shrink-0">
+                {isSnoozed ? "Snoozed" : "Paused"}
+              </span>
+            );
+          }
+          // Suppress SLA pill when the time block is already telegraphing urgency
+          // (red/orange/yellow time means the appointment is within 90 min).
+          const timeBlockIsUrgent = appt && diffMin !== null && diffMin >= -15 && diffMin <= 90;
+          if (timeBlockIsUrgent && task.slaStatus !== "breached") return null;
+          if (task.slaStatus === "breached") {
+            return <span className="px-2 py-0.5 rounded text-[11px] bg-red-900/60 text-red-300 shrink-0">SLA breached</span>;
+          }
+          if (task.slaStatus === "critical") {
+            return <span className="px-2 py-0.5 rounded text-[11px] bg-orange-900/60 text-orange-300 shrink-0">SLA critical</span>;
+          }
+          if (task.slaStatus === "warning") {
+            return <span className="px-2 py-0.5 rounded text-[11px] bg-yellow-900/40 text-yellow-300 shrink-0">SLA warning</span>;
+          }
+          return null;
+        })()}
+
         <button
-          onClick={(e) => { e.stopPropagation(); onComplete(task.id); }}
-          className="px-2 py-1 rounded text-[11px] font-medium border border-green-900 text-green-300 hover:bg-green-900/30 transition-colors shrink-0"
-          title="Mark completed"
+          onClick={(e) => { e.stopPropagation(); onClick(); }}
+          className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-blue-600 hover:bg-blue-500 text-white transition-colors shrink-0 flex items-center gap-1"
         >
-          ✓ Done
+          View &amp; Take Action
+          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+          </svg>
         </button>
+
+        <RowKebabMenu
+          task={task}
+          onComplete={onComplete}
+        />
+      </div>
+    </div>
+  );
+}
+
+// Per-row overflow menu — quick actions that don't need their own permanent
+// button (Mark done moved in here from an always-visible row button to match
+// the "View & Take Action" + "⋮" pattern; keeps the row from getting busier
+// as more one-off actions get added later).
+function RowKebabMenu({
+  task,
+  onComplete,
+}: {
+  task: Task;
+  onComplete?: (taskId: number) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [open]);
+
+  const canMarkDone = !!onComplete && task.status !== "COMPLETED" && task.status !== "CANCELLED";
+  if (!canMarkDone) return null; // nothing to offer yet — no empty menu button
+
+  return (
+    <div className="relative shrink-0" ref={ref} onClick={(e) => e.stopPropagation()}>
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="w-7 h-7 flex items-center justify-center rounded-lg text-zinc-500 hover:text-zinc-200 hover:bg-zinc-700/60 transition-colors"
+        title="More actions"
+      >
+        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+          <circle cx="10" cy="4" r="1.5" /><circle cx="10" cy="10" r="1.5" /><circle cx="10" cy="16" r="1.5" />
+        </svg>
+      </button>
+      {open && (
+        <div className="absolute right-0 mt-1 z-40 w-44 bg-zinc-900 border border-zinc-700 rounded-lg shadow-xl py-1">
+          <button
+            onClick={() => { onComplete!(task.id); setOpen(false); }}
+            className="w-full text-left px-3 py-2 text-sm text-green-300 hover:bg-zinc-800"
+          >
+            ✓ Mark done
+          </button>
+        </div>
       )}
-
-      <AssigneeChip task={task} agents={agents} onReassign={onReassign} canReassign={canReassign} />
-
-      {rightBadge}
-
-      {/* SLA / status pill — one urgency channel per row.
-          Rules:
-          - BLOCKED or snoozed → grey "Paused" chip. The breach-as-stick
-            is the wrong signal when an agent is correctly waiting on an
-            external party; rendering a red breach pill drives clear-not-
-            resolve theatre.
-          - Time block already coloured (appt within 90 min) → no SLA pill.
-            The time block IS the urgency signal. A second red badge
-            duplicates and dilutes it.
-          - Otherwise → original SLA pill for breached/critical/warning. */}
-      {(() => {
-        const isSnoozed = task.snoozedUntil ? new Date(task.snoozedUntil) > now : false;
-        const isPaused = task.status === "BLOCKED" || isSnoozed;
-        if (isPaused) {
-          return (
-            <span className="px-2 py-0.5 rounded text-[11px] bg-zinc-800 text-zinc-400 shrink-0">
-              {isSnoozed ? "Snoozed" : "Paused"}
-            </span>
-          );
-        }
-        // Suppress SLA pill when the time block is already telegraphing urgency
-        // (red/orange/yellow time means the appointment is within 90 min).
-        const timeBlockIsUrgent = appt && diffMin !== null && diffMin >= -15 && diffMin <= 90;
-        if (timeBlockIsUrgent && task.slaStatus !== "breached") return null;
-        if (task.slaStatus === "breached") {
-          return <span className="px-2 py-0.5 rounded text-[11px] bg-red-900/60 text-red-300 shrink-0">SLA breached</span>;
-        }
-        if (task.slaStatus === "critical") {
-          return <span className="px-2 py-0.5 rounded text-[11px] bg-orange-900/60 text-orange-300 shrink-0">SLA critical</span>;
-        }
-        if (task.slaStatus === "warning") {
-          return <span className="px-2 py-0.5 rounded text-[11px] bg-yellow-900/40 text-yellow-300 shrink-0">SLA warning</span>;
-        }
-        return null;
-      })()}
-
-      <span className="text-zinc-600 text-xl shrink-0">›</span>
     </div>
   );
 }
@@ -637,13 +811,15 @@ function BulkAssignButton({ taskIds, agents, onBulkReassign, label }: {
 }
 
 // ─── Today view: NOW / PREP / LATER / DONE ─────────────────────────────
-function TodayView({ tasks, tomorrowTasks, now, agents, canReassign, onRowClick, onReassign, onComplete, onBulkReassign }: {
+function TodayView({ tasks, tomorrowTasks, now, agents, canReassign, onRowClick, onRowHover, onRowHoverEnd, onReassign, onComplete, onBulkReassign }: {
   tasks: Task[];
   tomorrowTasks: Task[];
   now: Date;
   agents: Agent[];
   canReassign: boolean;
   onRowClick: (task: Task) => void;
+  onRowHover: (task: Task) => void;
+  onRowHoverEnd: () => void;
   onReassign: (taskId: number, agentId: number | null) => void;
   onComplete: (taskId: number) => void;
   onBulkReassign: (taskIds: number[], agentId: number) => void;
@@ -847,7 +1023,9 @@ function TodayView({ tasks, tomorrowTasks, now, agents, canReassign, onRowClick,
       >
         {focusEntries.length === 0 ? (
           <div className="px-5 py-8 text-center text-sm text-zinc-500">
-            All of today&apos;s work is complete. Genuinely nothing to do. 🎉
+            {laterTasks.length > 0
+              ? <>Nothing due right now — {laterTasks.length} more later today. 👀</>
+              : <>All of today&apos;s work is complete. Genuinely nothing to do. 🎉</>}
           </div>
         ) : (
           focusEntries.map(({ task: t, why }) => (
@@ -856,7 +1034,7 @@ function TodayView({ tasks, tomorrowTasks, now, agents, canReassign, onRowClick,
               task={t}
               now={now}
               agents={agents}
-              onClick={() => onRowClick(t)}
+              onClick={() => onRowClick(t)} onMouseEnter={() => onRowHover(t)} onMouseLeave={onRowHoverEnd}
               onReassign={onReassign}
               canReassign={canReassign}
               onComplete={onComplete}
@@ -909,7 +1087,7 @@ function TodayView({ tasks, tomorrowTasks, now, agents, canReassign, onRowClick,
               </summary>
               <div className="border-t border-zinc-800/60">
                 {g.items.map((t) => (
-                  <TaskRow key={t.id} task={t} now={now} agents={agents} onClick={() => onRowClick(t)} onReassign={onReassign} canReassign={canReassign} onComplete={onComplete} />
+                  <TaskRow key={t.id} task={t} now={now} agents={agents} onClick={() => onRowClick(t)} onMouseEnter={() => onRowHover(t)} onMouseLeave={onRowHoverEnd} onReassign={onReassign} canReassign={canReassign} onComplete={onComplete} />
                 ))}
               </div>
             </details>
@@ -935,7 +1113,7 @@ function TodayView({ tasks, tomorrowTasks, now, agents, canReassign, onRowClick,
               </span>
             </summary>
             <div className="border-t border-amber-900/30">
-              {prepTasks.map(t => <TaskRow key={t.id} task={t} now={now} agents={agents} onClick={() => onRowClick(t)} onReassign={onReassign} canReassign={canReassign} />)}
+              {prepTasks.map(t => <TaskRow key={t.id} task={t} now={now} agents={agents} onClick={() => onRowClick(t)} onMouseEnter={() => onRowHover(t)} onMouseLeave={onRowHoverEnd} onReassign={onReassign} canReassign={canReassign} />)}
             </div>
           </details>
         </div>
@@ -975,7 +1153,7 @@ function TodayView({ tasks, tomorrowTasks, now, agents, canReassign, onRowClick,
               <div className="px-5 py-2 bg-zinc-950/40 border-b border-zinc-800 text-[11px] text-zinc-500 uppercase tracking-wider font-semibold">
                 ── {fmtHourHeader(h)} · {laterByHour.get(h)!.length} task{laterByHour.get(h)!.length > 1 ? "s" : ""} ──
               </div>
-              {laterByHour.get(h)!.map(t => <TaskRow key={t.id} task={t} now={now} agents={agents} onClick={() => onRowClick(t)} onReassign={onReassign} canReassign={canReassign} />)}
+              {laterByHour.get(h)!.map(t => <TaskRow key={t.id} task={t} now={now} agents={agents} onClick={() => onRowClick(t)} onMouseEnter={() => onRowHover(t)} onMouseLeave={onRowHoverEnd} onReassign={onReassign} canReassign={canReassign} />)}
             </div>
           ))}
         </Zone>
@@ -998,7 +1176,7 @@ function TodayView({ tasks, tomorrowTasks, now, agents, canReassign, onRowClick,
           {doneByTeam.length === 0 ? (
             <div className="px-5 py-3 text-center text-xs text-zinc-500">Nothing completed yet today.</div>
           ) : (
-            doneByTeam.slice(0, 20).map(t => <TaskRow key={t.id} task={t} now={now} agents={agents} onClick={() => onRowClick(t)} onReassign={onReassign} canReassign={canReassign} />)
+            doneByTeam.slice(0, 20).map(t => <TaskRow key={t.id} task={t} now={now} agents={agents} onClick={() => onRowClick(t)} onMouseEnter={() => onRowHover(t)} onMouseLeave={onRowHoverEnd} onReassign={onReassign} canReassign={canReassign} />)
           )}
         </div>
       </details>
@@ -1023,7 +1201,7 @@ function TodayView({ tasks, tomorrowTasks, now, agents, canReassign, onRowClick,
             </span>
           </summary>
           <div className="border-t border-zinc-800">
-            {doneByEngine.slice(0, 20).map(t => <TaskRow key={t.id} task={t} now={now} agents={agents} onClick={() => onRowClick(t)} onReassign={onReassign} canReassign={canReassign} />)}
+            {doneByEngine.slice(0, 20).map(t => <TaskRow key={t.id} task={t} now={now} agents={agents} onClick={() => onRowClick(t)} onMouseEnter={() => onRowHover(t)} onMouseLeave={onRowHoverEnd} onReassign={onReassign} canReassign={canReassign} />)}
           </div>
         </details>
       )}
@@ -1032,12 +1210,14 @@ function TodayView({ tasks, tomorrowTasks, now, agents, canReassign, onRowClick,
 }
 
 // ─── Tomorrow view ─────────────────────────────────────────────────────
-function TomorrowView({ tasks, now, agents, canReassign, onRowClick, onReassign }: {
+function TomorrowView({ tasks, now, agents, canReassign, onRowClick, onRowHover, onRowHoverEnd, onReassign }: {
   tasks: Task[];
   now: Date;
   agents: Agent[];
   canReassign: boolean;
   onRowClick: (task: Task) => void;
+  onRowHover: (task: Task) => void;
+  onRowHoverEnd: () => void;
   onReassign: (taskId: number, agentId: number | null) => void;
 }) {
   // Simple chronological schedule (design rev 4): one plain summary line,
@@ -1109,7 +1289,7 @@ function TomorrowView({ tasks, now, agents, canReassign, onRowClick, onReassign 
                       task={t}
                       now={now}
                       agents={agents}
-                      onClick={() => onRowClick(t)}
+                      onClick={() => onRowClick(t)} onMouseEnter={() => onRowHover(t)} onMouseLeave={onRowHoverEnd}
                       onReassign={onReassign}
                       canReassign={canReassign}
                       rightBadge={
@@ -1128,7 +1308,7 @@ function TomorrowView({ tasks, now, agents, canReassign, onRowClick, onReassign 
                   No appointment time · {noTime.length}
                 </div>
                 {noTime.map((t) => (
-                  <TaskRow key={t.id} task={t} now={now} agents={agents} onClick={() => onRowClick(t)} onReassign={onReassign} canReassign={canReassign} />
+                  <TaskRow key={t.id} task={t} now={now} agents={agents} onClick={() => onRowClick(t)} onMouseEnter={() => onRowHover(t)} onMouseLeave={onRowHoverEnd} onReassign={onReassign} canReassign={canReassign} />
                 ))}
               </div>
             )}
@@ -1149,12 +1329,14 @@ function TomorrowView({ tasks, now, agents, canReassign, onRowClick, onReassign 
 // The old Age filter pills and sort toggle are gone — the zones ARE the
 // age filter, fixed oldest-first. (Type/rule/store slicing lives in the
 // workspace filter bar above the tabs.)
-function StuckView({ tasks, now, agents, canReassign, onRowClick, onReassign, onComplete, onBulkReassign, onCloseWithReason }: {
+function StuckView({ tasks, now, agents, canReassign, onRowClick, onRowHover, onRowHoverEnd, onReassign, onComplete, onBulkReassign, onCloseWithReason }: {
   tasks: Task[];
   now: Date;
   agents: Agent[];
   canReassign: boolean;
   onRowClick: (task: Task) => void;
+  onRowHover: (task: Task) => void;
+  onRowHoverEnd: () => void;
   onReassign: (taskId: number, agentId: number | null) => void;
   onComplete: (taskId: number) => void;
   onBulkReassign: (taskIds: number[], agentId: number) => void;
@@ -1246,7 +1428,7 @@ function StuckView({ tasks, now, agents, canReassign, onRowClick, onReassign, on
           ) : undefined}
         >
           {bandYesterday.map((t) => (
-            <TaskRow key={t.id} task={t} now={now} agents={agents} onClick={() => onRowClick(t)} onReassign={onReassign} canReassign={canReassign} onComplete={onComplete}
+            <TaskRow key={t.id} task={t} now={now} agents={agents} onClick={() => onRowClick(t)} onMouseEnter={() => onRowHover(t)} onMouseLeave={onRowHoverEnd} onReassign={onReassign} canReassign={canReassign} onComplete={onComplete}
               rightBadge={<span className="px-2 py-0.5 rounded text-[11px] shrink-0 bg-amber-900/40 text-amber-300 tabular-nums">{fmtDayAge(t)}</span>}
             />
           ))}
@@ -1266,7 +1448,7 @@ function StuckView({ tasks, now, agents, canReassign, onRowClick, onReassign, on
           ) : undefined}
         >
           {bandMid.map((t) => (
-            <TaskRow key={t.id} task={t} now={now} agents={agents} onClick={() => onRowClick(t)} onReassign={onReassign} canReassign={canReassign} onComplete={onComplete}
+            <TaskRow key={t.id} task={t} now={now} agents={agents} onClick={() => onRowClick(t)} onMouseEnter={() => onRowHover(t)} onMouseLeave={onRowHoverEnd} onReassign={onReassign} canReassign={canReassign} onComplete={onComplete}
               rightBadge={<span className="px-2 py-0.5 rounded text-[11px] shrink-0 bg-red-900/40 text-red-300 tabular-nums">{fmtDayAge(t)}</span>}
             />
           ))}
@@ -1290,7 +1472,7 @@ function StuckView({ tasks, now, agents, canReassign, onRowClick, onReassign, on
                 <div className="text-base font-bold text-red-400 tabular-nums">{fmtDayAge(t)}</div>
                 <div className="text-[10px] text-zinc-600 uppercase tracking-wider">stuck</div>
               </div>
-              <div className="flex-1 min-w-0 cursor-pointer" onClick={() => onRowClick(t)} role="button" tabIndex={0}>
+              <div className="flex-1 min-w-0 cursor-pointer" onClick={() => onRowClick(t)} onMouseEnter={() => onRowHover(t)} onMouseLeave={onRowHoverEnd} role="button" tabIndex={0}>
                 <div className="font-medium text-sm text-zinc-100 truncate">{titleToIST(t.title)}</div>
                 <div className="text-xs text-zinc-500 mt-0.5">
                   #{t.entityId}{storeNameOf(t) ? ` · ${storeNameOf(t)}` : ""}
@@ -1298,7 +1480,7 @@ function StuckView({ tasks, now, agents, canReassign, onRowClick, onReassign, on
               </div>
               <AssigneeChip task={t} agents={agents} onReassign={onReassign} canReassign={canReassign} />
               <button
-                onClick={() => onRowClick(t)}
+                onClick={() => onRowClick(t)} onMouseEnter={() => onRowHover(t)} onMouseLeave={onRowHoverEnd}
                 className="px-2 py-1 rounded text-[11px] font-medium border border-red-900 text-red-300 hover:bg-red-900/30 transition-colors shrink-0"
                 title="Open order context to raise an escalation"
               >
@@ -1347,6 +1529,20 @@ export default function MyWorkBoard({ currentUser }: { currentUser: CurrentUser 
   // can render immediately without a re-fetch. Updated optimistically by
   // the panel's actions; refetched via onUpdate to pick up server state.
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  // Hover-to-preview for the persistent detail panel (lg+ only — below that
+  // breakpoint there's no docked panel, just the click-triggered modal, and
+  // firing it on hover would pop a full-screen overlay under the cursor).
+  // Debounced so sweeping the cursor down a long list doesn't fire a fetch
+  // per row; a short pause over a row is what actually commits the preview.
+  const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const handleRowHover = useCallback((t: Task) => {
+    if (typeof window !== "undefined" && window.matchMedia && !window.matchMedia("(min-width: 1024px)").matches) return;
+    if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
+    hoverTimerRef.current = setTimeout(() => setSelectedTask(t), 180);
+  }, []);
+  const handleRowHoverEnd = useCallback(() => {
+    if (hoverTimerRef.current) { clearTimeout(hoverTimerRef.current); hoverTimerRef.current = null; }
+  }, []);
   // Registered (active) data sources — drives the top-level Source filter so it
   // lists every source (e.g. Appointments) even when none of its tasks are in
   // the current view, instead of collapsing when only one source has tasks.
@@ -1737,9 +1933,11 @@ export default function MyWorkBoard({ currentUser }: { currentUser: CurrentUser 
   // Set of entity types present in the scoped workspace — chips render
   // dynamically so we only show chips for types that exist.
   const availableTypes = useMemo(() => {
-    const s = new Set<string>();
-    for (const t of scopedTasks) s.add(t.orderType);
-    return Array.from(s).sort();
+    const byType = new Map<string, number>();
+    for (const t of scopedTasks) byType.set(t.orderType, (byType.get(t.orderType) ?? 0) + 1);
+    return Array.from(byType.entries())
+      .sort((a, b) => b[1] - a[1])
+      .map(([type, count]) => ({ type, count }));
   }, [scopedTasks]);
 
   // Rules present in the unfiltered workspace, with a compact chip label
@@ -1823,6 +2021,13 @@ export default function MyWorkBoard({ currentUser }: { currentUser: CurrentUser 
   // SLA filter captures ALL breaching orders regardless of which tab is open);
   // a tab scope exports just that tab. Done tasks are excluded from "all".
   const openFiltered = useMemo(() => filteredTasks.filter((t) => t.viewBucket !== "done"), [filteredTasks]);
+  // "Needs attention" header pill — open work whose SLA has already slipped
+  // (breached) or is about to (critical). Not every open task, just the
+  // ones actually demanding action right now.
+  const needsAttentionCount = useMemo(
+    () => openFiltered.filter((t) => t.slaStatus === "breached" || t.slaStatus === "critical").length,
+    [openFiltered]
+  );
   const doExport = useCallback((scope: "all" | Tab) => {
     const list = scope === "all" ? openFiltered : byBucket[scope];
     if (!list.length) return;
@@ -1839,7 +2044,13 @@ export default function MyWorkBoard({ currentUser }: { currentUser: CurrentUser 
   }, [now, lastUpdated]);
 
   return (
-    <div className="px-8 py-6 max-w-6xl mx-auto">
+    <div className="flex h-full">
+    {/* Left: the existing Smart View list (header, filter bar, tabs, zones) —
+        unchanged, just now the scrollable left pane of a split view instead
+        of the whole page. Capped narrower than before (4xl vs 6xl) since it
+        now shares width with the detail panel on wide screens. */}
+    <div className="flex-1 min-w-0 h-full overflow-y-auto">
+    <div className="px-8 py-6 max-w-4xl mx-auto">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
@@ -1856,7 +2067,27 @@ export default function MyWorkBoard({ currentUser }: { currentUser: CurrentUser 
             </span>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
+          {!isAgent && needsAttentionCount > 0 && (
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-red-900/50 bg-red-950/30">
+              <svg className="w-4 h-4 text-red-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+              </svg>
+              <div className="leading-tight">
+                <div className="text-[10px] text-red-400 uppercase tracking-wider">Needs attention</div>
+                <div className="text-sm font-semibold text-red-200 tabular-nums">{needsAttentionCount}</div>
+              </div>
+            </div>
+          )}
+          {!isAgent && (
+            <div className="hidden xl:flex items-center gap-3 px-3 py-1.5 rounded-lg border border-zinc-800 bg-zinc-900/60 text-[11px] text-zinc-400">
+              <span className="text-zinc-500 uppercase tracking-wider text-[10px]">SLA urgency</span>
+              <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-emerald-500" />Safe</span>
+              <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-yellow-500" />Warning</span>
+              <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-orange-500" />Critical</span>
+              <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-red-500" />Breached</span>
+            </div>
+          )}
           {!isAgent && (
             <div className="relative">
               <button
@@ -1910,45 +2141,43 @@ export default function MyWorkBoard({ currentUser }: { currentUser: CurrentUser 
           Hidden for agents (their queue is small enough that filters add
           noise rather than value). */}
       {!isAgent && (
-      <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-3 mb-4 flex flex-col gap-2.5">
-        {/* ── Tier 1 — top level: WHO (assignee) and WHICH DATA (source) ── */}
-        <div className="flex items-center gap-3 flex-wrap">
-        {/* Assignee selector */}
-        <div className="flex items-center gap-2">
-          <span className="text-[10px] text-zinc-500 uppercase tracking-wider">Assignee</span>
-          <select
-            value={typeof filterAssigneeId === "number" ? String(filterAssigneeId) : filterAssigneeId}
-            onChange={(e) => {
-              const v = e.target.value;
-              if (v === "all" || v === "unassigned") setFilterAssigneeId(v);
-              else setFilterAssigneeId(parseInt(v, 10));
-            }}
-            className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-sm text-zinc-100 focus:outline-none focus:ring-1 focus:ring-blue-500"
-          >
-            <option value="all">All team ({tasks.length})</option>
-            <option value="unassigned">⚠ Unassigned ({unassignedCount})</option>
-            <optgroup label="Team members">
+      <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-3 mb-4 flex items-center gap-2 flex-wrap">
+        {/* Assignee — compact dropdown pill (was a bare <select>, now matches
+            the other filter buttons visually). */}
+        <FilterDropdown
+          label={
+            filterAssigneeId === "all" ? `All team (${tasks.length})`
+              : filterAssigneeId === "unassigned" ? `⚠ Unassigned (${unassignedCount})`
+              : agents.find((a) => a.id === filterAssigneeId)?.name ?? "Assignee"
+          }
+          active={filterAssigneeId !== "all"}
+        >
+          {(close) => (
+            <>
+              <FilterOption label="All team" count={tasks.length} active={filterAssigneeId === "all"} onClick={() => { setFilterAssigneeId("all"); close(); }} />
+              <FilterOption label="⚠ Unassigned" count={unassignedCount} active={filterAssigneeId === "unassigned"} onClick={() => { setFilterAssigneeId("unassigned"); close(); }} />
+              <div className="border-t border-zinc-800 my-1" />
               {agents.map((a) => (
-                <option key={a.id} value={a.id}>{a.name}</option>
+                <FilterOption key={a.id} label={a.name} active={filterAssigneeId === a.id} onClick={() => { setFilterAssigneeId(a.id); close(); }} />
               ))}
-            </optgroup>
-          </select>
-        </div>
+            </>
+          )}
+        </FilterDropdown>
 
-        {/* Data Source chips — top-level slice. The Type/Rule/Store row below
-            reshapes to the selected source's own vocabulary. */}
+        {/* Data Source pills — top-level slice. The dropdowns after it
+            (Type / Rule / Store) reshape to the selected source's own
+            vocabulary. */}
         {availableDataSources.length > 1 && (
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <span className="text-[10px] text-zinc-500 uppercase tracking-wider mr-1">Source</span>
+          <>
             <button
               onClick={() => selectDataSource("all")}
-              className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors whitespace-nowrap ${
                 filterDataSourceId === "all"
                   ? "bg-blue-600 border-blue-600 text-white"
-                  : "bg-zinc-900 border-zinc-700 text-zinc-400 hover:text-zinc-200"
+                  : "bg-zinc-800 border-zinc-700 text-zinc-300 hover:text-white hover:border-zinc-600"
               }`}
             >
-              All
+              All sources
             </button>
             {availableDataSources.map((ds) => {
               const active = filterDataSourceId === ds.id;
@@ -1956,18 +2185,155 @@ export default function MyWorkBoard({ currentUser }: { currentUser: CurrentUser 
                 <button
                   key={ds.id}
                   onClick={() => selectDataSource(active ? "all" : ds.id)}
-                  className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors whitespace-nowrap ${
                     active
                       ? "bg-blue-600 border-blue-600 text-white"
-                      : "bg-zinc-900 border-zinc-700 text-zinc-400 hover:text-zinc-200"
+                      : "bg-zinc-800 border-zinc-700 text-zinc-300 hover:text-white hover:border-zinc-600"
                   }`}
                 >
                   {ds.label} <span className={active ? "text-blue-200" : "text-zinc-500"}>{ds.count}</span>
                 </button>
               );
             })}
-          </div>
+          </>
         )}
+
+        {/* Type — sub-filter scoped to the chosen source (e.g. Online/Centre/
+            Home visit within Appointments). */}
+        {availableTypes.length > 1 && (
+          <FilterDropdown
+            label={
+              filterTypes.size === 0 ? "All types"
+                : filterTypes.size === 1 ? typeLabel(Array.from(filterTypes)[0])
+                : `${filterTypes.size} types`
+            }
+            active={filterTypes.size > 0}
+          >
+            {(close) => (
+              <>
+                <FilterOption label="All types" count={scopedTasks.length} active={filterTypes.size === 0} onClick={() => { setFilterTypes(new Set()); close(); }} />
+                {availableTypes.map(({ type, count }) => (
+                  <FilterOption
+                    key={type}
+                    label={typeLabel(type)}
+                    count={count}
+                    active={filterTypes.has(type)}
+                    onClick={() => {
+                      const next = new Set(filterTypes);
+                      if (next.has(type)) next.delete(type); else next.add(type);
+                      setFilterTypes(next);
+                    }}
+                  />
+                ))}
+              </>
+            )}
+          </FilterDropdown>
+        )}
+
+        {/* Rule — which rule produced the task. Sorted by volume so the
+            biggest pile is listed first; counts are workspace-wide. */}
+        {availableRules.length > 0 && (
+          <FilterDropdown
+            label={
+              filterRules.size === 0 ? "Rule"
+                : filterRules.size === 1 ? (availableRules.find((r) => r.id === Array.from(filterRules)[0])?.label ?? "1 rule")
+                : `${filterRules.size} rules`
+            }
+            active={filterRules.size > 0}
+            widthClass="w-64"
+          >
+            {(close) => (
+              <>
+                <FilterOption label="All rules" active={filterRules.size === 0} onClick={() => { setFilterRules(new Set()); close(); }} />
+                {availableRules.map((r) => (
+                  <FilterOption
+                    key={r.id}
+                    label={r.label}
+                    count={r.count}
+                    active={filterRules.has(r.id)}
+                    onClick={() => {
+                      const next = new Set(filterRules);
+                      if (next.has(r.id)) next.delete(r.id); else next.add(r.id);
+                      setFilterRules(next);
+                    }}
+                  />
+                ))}
+              </>
+            )}
+          </FilterDropdown>
+        )}
+
+        {/* Store — dropdown (store lists run long); sorted by volume */}
+        {availableStores.length > 1 && (
+          <FilterDropdown
+            label={filterStore === "all" ? "Store" : filterStore}
+            active={filterStore !== "all"}
+            widthClass="w-64"
+          >
+            {(close) => (
+              <>
+                <FilterOption label="All stores" active={filterStore === "all"} onClick={() => { setFilterStore("all"); close(); }} />
+                {availableStores.map((s) => (
+                  <FilterOption key={s.name} label={s.name} count={s.count} active={filterStore === s.name} onClick={() => { setFilterStore(s.name); close(); }} />
+                ))}
+              </>
+            )}
+          </FilterDropdown>
+        )}
+
+        {/* Priority */}
+        {availablePriorities.length > 1 && (
+          <FilterDropdown
+            label={filterPriorities.size === 0 ? "Priority" : `${filterPriorities.size} priorities`}
+            active={filterPriorities.size > 0}
+          >
+            {(close) => (
+              <>
+                <FilterOption label="All priorities" active={filterPriorities.size === 0} onClick={() => { setFilterPriorities(new Set()); close(); }} />
+                {availablePriorities.map((p) => (
+                  <FilterOption
+                    key={p}
+                    label={p.charAt(0) + p.slice(1).toLowerCase()}
+                    active={filterPriorities.has(p)}
+                    onClick={() => {
+                      const next = new Set(filterPriorities);
+                      if (next.has(p)) next.delete(p); else next.add(p);
+                      setFilterPriorities(next);
+                    }}
+                  />
+                ))}
+              </>
+            )}
+          </FilterDropdown>
+        )}
+
+        {/* SLA */}
+        <FilterDropdown
+          label={
+            filterSla.size === 0 ? "SLA"
+              : filterSla.size === 1 ? (SLA_OPTIONS.find((o) => o.key === Array.from(filterSla)[0])?.label ?? "SLA")
+              : `${filterSla.size} SLA`
+          }
+          active={filterSla.size > 0}
+        >
+          {(close) => (
+            <>
+              <FilterOption label="All" active={filterSla.size === 0} onClick={() => { setFilterSla(new Set()); close(); }} />
+              {SLA_OPTIONS.map(({ key, label }) => (
+                <FilterOption
+                  key={key}
+                  label={label}
+                  active={filterSla.has(key)}
+                  onClick={() => {
+                    const next = new Set(filterSla);
+                    if (next.has(key)) next.delete(key); else next.add(key);
+                    setFilterSla(next);
+                  }}
+                />
+              ))}
+            </>
+          )}
+        </FilterDropdown>
 
         {/* Reset (only shows when something is filtered) */}
         {anyFilterActive && (
@@ -1978,163 +2344,6 @@ export default function MyWorkBoard({ currentUser }: { currentUser: CurrentUser 
             Clear filters
           </button>
         )}
-        </div>
-
-        {/* ── Tier 2 — filters scoped to the chosen source (type / rule / store) ── */}
-        {/* Rules render whenever ANY exist (they double as a per-rule count
-            breakdown, valuable even for a single-rule source like Appointments);
-            Type/Store need >1 to be a meaningful choice. */}
-        {(availableTypes.length > 1 || availableRules.length > 0 || availableStores.length > 1) && (
-        <div className="flex items-center gap-3 flex-wrap border-t border-zinc-800/70 pt-2.5">
-        {/* Entity-type chips */}
-        {availableTypes.length > 1 && (
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <span className="text-[10px] text-zinc-500 uppercase tracking-wider mr-1">Type</span>
-            <button
-              onClick={() => setFilterTypes(new Set())}
-              className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
-                filterTypes.size === 0
-                  ? "bg-blue-600 border-blue-600 text-white"
-                  : "bg-zinc-900 border-zinc-700 text-zinc-400 hover:text-zinc-200"
-              }`}
-            >
-              All
-            </button>
-            {availableTypes.map((t) => {
-              const active = filterTypes.has(t);
-              return (
-                <button
-                  key={t}
-                  onClick={() => {
-                    const next = new Set(filterTypes);
-                    if (active) next.delete(t); else next.add(t);
-                    setFilterTypes(next);
-                  }}
-                  className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
-                    active
-                      ? "bg-blue-600 border-blue-600 text-white"
-                      : "bg-zinc-900 border-zinc-700 text-zinc-400 hover:text-zinc-200"
-                  }`}
-                >
-                  {typeLabel(t)}
-                </button>
-              );
-            })}
-          </div>
-        )}
-
-        {/* Rule chips — which rule produced the task. Sorted by volume so
-            the biggest pile is the first chip; counts are workspace-wide. */}
-        {availableRules.length > 0 && (
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <span className="text-[10px] text-zinc-500 uppercase tracking-wider mr-1">Rule</span>
-            <button
-              onClick={() => setFilterRules(new Set())}
-              className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
-                filterRules.size === 0
-                  ? "bg-blue-600 border-blue-600 text-white"
-                  : "bg-zinc-900 border-zinc-700 text-zinc-400 hover:text-zinc-200"
-              }`}
-            >
-              All
-            </button>
-            {availableRules.map((r) => {
-              const active = filterRules.has(r.id);
-              return (
-                <button
-                  key={r.id}
-                  onClick={() => {
-                    const next = new Set(filterRules);
-                    if (active) next.delete(r.id); else next.add(r.id);
-                    setFilterRules(next);
-                  }}
-                  title={r.id}
-                  className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
-                    active
-                      ? "bg-blue-600 border-blue-600 text-white"
-                      : "bg-zinc-900 border-zinc-700 text-zinc-400 hover:text-zinc-200"
-                  }`}
-                >
-                  {r.label} <span className={active ? "text-blue-200" : "text-zinc-500"}>{r.count}</span>
-                </button>
-              );
-            })}
-          </div>
-        )}
-
-        {/* Store selector — dropdown (store lists run long); sorted by volume */}
-        {availableStores.length > 1 && (
-          <div className="flex items-center gap-2">
-            <span className="text-[10px] text-zinc-500 uppercase tracking-wider">Store</span>
-            <select
-              value={filterStore}
-              onChange={(e) => setFilterStore(e.target.value)}
-              className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-sm text-zinc-100 max-w-[220px] focus:outline-none focus:ring-1 focus:ring-blue-500"
-            >
-              <option value="all">All stores</option>
-              {availableStores.map((s) => (
-                <option key={s.name} value={s.name}>{s.name} ({s.count})</option>
-              ))}
-            </select>
-          </div>
-        )}
-        </div>
-        )}
-
-        {/* ── Tier 3 — cross-source slices (priority / SLA) ── */}
-        <div className="flex items-center gap-3 flex-wrap border-t border-zinc-800/70 pt-2.5">
-        {/* Priority chips */}
-        {availablePriorities.length > 1 && (
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <span className="text-[10px] text-zinc-500 uppercase tracking-wider mr-1">Priority</span>
-            {availablePriorities.map((p) => {
-              const active = filterPriorities.has(p);
-              return (
-                <button
-                  key={p}
-                  onClick={() => {
-                    const next = new Set(filterPriorities);
-                    if (active) next.delete(p); else next.add(p);
-                    setFilterPriorities(next);
-                  }}
-                  className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
-                    active
-                      ? "bg-blue-600 border-blue-600 text-white"
-                      : "bg-zinc-900 border-zinc-700 text-zinc-400 hover:text-zinc-200"
-                  }`}
-                >
-                  {p.charAt(0) + p.slice(1).toLowerCase()}
-                </button>
-              );
-            })}
-          </div>
-        )}
-
-        {/* SLA-state chips */}
-        <div className="flex items-center gap-1.5 flex-wrap">
-          <span className="text-[10px] text-zinc-500 uppercase tracking-wider mr-1">SLA</span>
-          {SLA_OPTIONS.map(({ key, label }) => {
-            const active = filterSla.has(key);
-            return (
-              <button
-                key={key}
-                onClick={() => {
-                  const next = new Set(filterSla);
-                  if (active) next.delete(key); else next.add(key);
-                  setFilterSla(next);
-                }}
-                className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
-                  active
-                    ? "bg-blue-600 border-blue-600 text-white"
-                    : "bg-zinc-900 border-zinc-700 text-zinc-400 hover:text-zinc-200"
-                }`}
-              >
-                {label}
-              </button>
-            );
-          })}
-        </div>
-        </div>
       </div>
       )}
 
@@ -2149,7 +2358,7 @@ export default function MyWorkBoard({ currentUser }: { currentUser: CurrentUser 
           return (
             <button
               key={t}
-              onClick={() => setTab(t)}
+              onClick={() => { setTab(t); setSelectedTask(null); }}
               className={`px-5 py-3 text-sm font-medium transition-colors ${
                 isActive
                   ? "bg-zinc-900 border-b-2 border-blue-500 text-white -mb-px"
@@ -2188,6 +2397,8 @@ export default function MyWorkBoard({ currentUser }: { currentUser: CurrentUser 
               agents={agents}
               canReassign={!isAgent}
               onRowClick={(t) => setSelectedTask(t)}
+              onRowHover={handleRowHover}
+              onRowHoverEnd={handleRowHoverEnd}
               onReassign={handleReassign}
               onComplete={handleComplete}
               onBulkReassign={handleBulkReassign}
@@ -2200,6 +2411,8 @@ export default function MyWorkBoard({ currentUser }: { currentUser: CurrentUser 
               agents={agents}
               canReassign={!isAgent}
               onRowClick={(t) => setSelectedTask(t)}
+              onRowHover={handleRowHover}
+              onRowHoverEnd={handleRowHoverEnd}
               onReassign={handleReassign}
             />
           )}
@@ -2210,6 +2423,8 @@ export default function MyWorkBoard({ currentUser }: { currentUser: CurrentUser 
               agents={agents}
               canReassign={!isAgent}
               onRowClick={(t) => setSelectedTask(t)}
+              onRowHover={handleRowHover}
+              onRowHoverEnd={handleRowHoverEnd}
               onReassign={handleReassign}
               onComplete={handleComplete}
               onBulkReassign={handleBulkReassign}
@@ -2218,16 +2433,60 @@ export default function MyWorkBoard({ currentUser }: { currentUser: CurrentUser 
           )}
         </>
       )}
+    </div>
+    </div>
 
-      {/* Task drawer — role-aware.
-          - Agents: TaskDetailPanel in a slide-over. Full actions
-            (start / complete checklist / snooze / flag for help / done).
-            This is their daily workflow.
-          - Heads / Admins: OrderQuickView. Read-only context — order
-            details, related OpsFlow tasks, history. Heads oversee; they
-            shouldn't be marking tasks complete from a monitoring view.
-            They have the Reassign popover on the row for the one
-            intervention they actually need from here. */}
+    {/* Right: persistent detail panel (Linear/Gmail-style split view) —
+        click a row on the left and its full context + checklist loads here
+        without leaving the list. Only at lg+ width: below that there isn't
+        room for both columns, so it falls back to the original slide-over
+        modal (rendered further down, `lg:hidden`).
+          - Agents: TaskDetailPanel. Full actions (start / complete
+            checklist / snooze / flag for help / done) — their daily
+            workflow.
+          - Heads / Admins: OrderQuickView / AppointmentQuickView, inline
+            variant. Read-only context — order details, related OpsFlow
+            tasks, history. Heads oversee; they shouldn't be marking tasks
+            complete from a monitoring view. They have the Reassign
+            popover on the row for the one intervention they need here. */}
+    <div className="hidden lg:block w-[440px] shrink-0 h-full border-l border-zinc-800 overflow-y-auto bg-zinc-950">
+      {selectedTask ? (
+        isAgent ? (
+          <TaskDetailPanel
+            key={selectedTask.id}
+            task={selectedTask}
+            onUpdate={() => { fetchTasks(); }}
+          />
+        ) : (selectedTask.entityType ?? "").toUpperCase() === "APPOINTMENT" ||
+          selectedTask.dataSource?.sourceId === "Appointments" ? (
+          <AppointmentQuickView
+            key={selectedTask.id}
+            variant="inline"
+            appointmentId={selectedTask.entityId}
+            onClose={() => setSelectedTask(null)}
+          />
+        ) : (
+          <OrderQuickView
+            key={selectedTask.id}
+            variant="inline"
+            orderId={selectedTask.entityId}
+            onClose={() => setSelectedTask(null)}
+          />
+        )
+      ) : (
+        <div className="flex flex-col items-center justify-center h-full text-center px-6">
+          <svg className="w-12 h-12 text-zinc-800 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+          </svg>
+          <p className="text-sm text-zinc-600 font-medium">Select a task to view details</p>
+          <p className="text-xs text-zinc-700 mt-1">Pick any task from the list to see its checklist and context here</p>
+        </div>
+      )}
+    </div>
+
+    {/* Narrow-screen fallback — same drawers, but as an on-top modal since
+        there's no room for a persistent side-by-side panel below lg. */}
+    <div className="lg:hidden">
       {selectedTask && isAgent && (
         <>
           <div
@@ -2270,6 +2529,7 @@ export default function MyWorkBoard({ currentUser }: { currentUser: CurrentUser 
           />
         )
       )}
+    </div>
     </div>
   );
 }
