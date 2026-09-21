@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import CallButton from "@/components/shared/CallButton";
 import TaskActionCard, { type ActionableTask } from "@/components/shared/TaskActionCard";
 import { formatISTTimestamp, formatISTDate } from "@/lib/utils/timezone";
+import { labstackConsoleUrl } from "@/lib/utils/labstackConsole";
 
 interface OrderDetail {
   id: number;
@@ -165,6 +166,19 @@ export default function OrderQuickView({ orderId, onClose, variant = "modal" }: 
             </div>
             {order && (
               <p className="text-xs text-zinc-500 mt-0.5">{order.orderType.replace(/_/g, " ")}</p>
+            )}
+            {labstackConsoleUrl("ORDER", orderId) && (
+              <a
+                href={labstackConsoleUrl("ORDER", orderId)!}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 text-[11px] text-blue-400 hover:text-blue-300 hover:underline mt-1.5"
+              >
+                Open in Console
+                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                </svg>
+              </a>
             )}
           </div>
           <button
