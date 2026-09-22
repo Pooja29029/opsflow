@@ -154,6 +154,10 @@ model CallLog {
   recordingUrl   String?
   durationSec    Int?
   errorMessage   String?
+  // How many times the recording sweep has polled Exotel for a recording
+  // that wasn't ready yet on the status webhook (recording URLs generate
+  // 45s-few min after the call ends). Capped in callRecordingSweep.ts.
+  recordingCheckAttempts Int @default(0)
   createdAt      DateTime   @default(now())
   updatedAt      DateTime   @updatedAt
 
