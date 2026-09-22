@@ -45,6 +45,9 @@ export async function GET(
 
   // No timezone cast — labstack stores naive-UTC timestamps (see orders route
   // + labstack.ts). labstackOr degrades to a clean 503 if the replica is stuck.
+  // The creating-store join lives in a SEPARATE best-effort query below: the
+  // AppointmentAuditEntry table is absent from some source snapshots (local dev
+  // in particular), and a missing optional table must not 503 the whole drawer.
   const rows = await labstackOr(
     labstack.$queryRawUnsafe<RawAppointmentDetail[]>(
       `SELECT
@@ -64,25 +67,14 @@ export async function GET(
          u.mobile            AS "patientMobile",
          p.name              AS "doctorName",
          p.mobile            AS "doctorMobile",
-         -- Store = the store that CREATED the appointment. There is no store
-         -- column on Appointment; the creating store is recorded on its audit
-         -- trail (AppointmentAuditEntry, action='Created', actorKind='STORE').
-         -- Take that entry's store_id; fall back to the patient's partner store
-         -- for any appointment that predates the audit trail.
-         COALESCE(cstore."storeName", ustore."storeName") AS "storeName"
+         -- Fallback store: the patient's partner store. The preferred store —
+         -- the one that CREATED the appointment — is resolved separately below.
+         ustore."storeName"  AS "storeName"
        FROM public."Appointment" a
        JOIN public."User" u ON u.id = a.user_id
        LEFT JOIN public."Store" ustore ON ustore.id = u."storeId"
        LEFT JOIN public."SlotConfig" sc ON sc.id = a.slot_id
        LEFT JOIN public."Provider" p ON p.id = sc.provider_id
-       LEFT JOIN LATERAL (
-         SELECT ae.store_id
-         FROM public."AppointmentAuditEntry" ae
-         WHERE ae.appointment_id = a.id AND ae.store_id IS NOT NULL
-         ORDER BY (ae.action = 'Created') DESC, ae."createdAt" ASC
-         LIMIT 1
-       ) cae ON true
-       LEFT JOIN public."Store" cstore ON cstore.id = cae.store_id
        WHERE a.id = $1
        LIMIT 1`,
       appointmentId,
@@ -98,6 +90,35 @@ export async function GET(
   }
 
   const a = rows[0];
+
+  // Store = the store that CREATED the appointment (recorded on its audit trail:
+  // AppointmentAuditEntry, action='Created', actorKind='STORE'). This is the
+  // requesting store, not the fulfilling one. The table is optional across
+  // source snapshots, so guard with to_regclass (never throws) and only run the
+  // lookup when it exists — otherwise a schema difference would repeatedly trip
+  // the shared labstack circuit breaker. Falls back to the patient store above.
+  const auditExists = await labstackOr(
+    labstack.$queryRawUnsafe<Array<{ present: boolean }>>(
+      `SELECT to_regclass('public."AppointmentAuditEntry"') IS NOT NULL AS present`,
+    ),
+    [{ present: false }],
+  );
+  if (auditExists[0]?.present) {
+    const createdStore = await labstackOr(
+      labstack.$queryRawUnsafe<Array<{ storeName: string | null }>>(
+        `SELECT cstore."storeName"
+           FROM public."AppointmentAuditEntry" ae
+           JOIN public."Store" cstore ON cstore.id = ae.store_id
+          WHERE ae.appointment_id = $1 AND ae.store_id IS NOT NULL
+          ORDER BY (ae.action = 'Created') DESC, ae."createdAt" ASC
+          LIMIT 1`,
+        appointmentId,
+      ),
+      [] as Array<{ storeName: string | null }>,
+    );
+    const created = createdStore[0]?.storeName;
+    if (created) a.storeName = created;
+  }
 
   // The appointment's own OpsFlow tasks. Filter by entityType so an ORDER that
   // shares this numeric id doesn't leak its tasks into the appointment drawer
