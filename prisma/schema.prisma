@@ -410,6 +410,13 @@ model TaskRule {
   dataSourceId           String
   allowedTypes           Json                @default("[]")
   allowedStatuses        Json                @default("[]")
+  // Store filter — same shape/semantics as allowedTypes: empty = match any
+  // store, non-empty = only entities whose storeId is in this list. Values
+  // are labstack Store ids (numbers), stored as JSON like the other filters
+  // since a rule can span zero or more stores. See sourceSample.ts for how
+  // storeId gets resolved per data source (direct column vs. Appointment's
+  // audit-trail derivation).
+  allowedStores          Json                @default("[]")
   pollingIntervalMinutes Int                 @default(15)
   taskTypeId             Int
   titleTemplate          String
