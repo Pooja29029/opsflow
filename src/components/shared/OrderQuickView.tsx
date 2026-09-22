@@ -37,6 +37,12 @@ interface OrderQuickViewProps {
   // positioning, for a persistent split-view panel that sits next to a
   // task list (the caller controls width/border).
   variant?: "modal" | "inline";
+  // The task's actual entityType (e.g. "REQUEST"), when the caller has it —
+  // drives the "Open in Console" link so it points at the right console
+  // section instead of always assuming plain orders. Callers that don't
+  // track entityType (this component predates most non-Order sources) fall
+  // back to "ORDER", which is correct for them today.
+  entityType?: string;
 }
 
 const ORDER_STATUS_COLOR: Record<string, string> = {
@@ -95,7 +101,7 @@ const STORE_ICON = (
   <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M3 9.5L12 3l9 6.5V21a1 1 0 01-1 1h-5v-6H9v6H4a1 1 0 01-1-1V9.5z" /></svg>
 );
 
-export default function OrderQuickView({ orderId, onClose, variant = "modal" }: OrderQuickViewProps) {
+export default function OrderQuickView({ orderId, onClose, variant = "modal", entityType = "ORDER" }: OrderQuickViewProps) {
   const [order, setOrder] = useState<OrderDetail | null>(null);
   const [tasks, setTasks] = useState<OrderTask[]>([]);
   const [loading, setLoading] = useState(true);
@@ -167,9 +173,9 @@ export default function OrderQuickView({ orderId, onClose, variant = "modal" }: 
             {order && (
               <p className="text-xs text-zinc-500 mt-0.5">{order.orderType.replace(/_/g, " ")}</p>
             )}
-            {labstackConsoleUrl("ORDER", orderId) && (
+            {labstackConsoleUrl(entityType, orderId) && (
               <a
-                href={labstackConsoleUrl("ORDER", orderId)!}
+                href={labstackConsoleUrl(entityType, orderId)!}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-1 text-[11px] text-blue-400 hover:text-blue-300 hover:underline mt-1.5"

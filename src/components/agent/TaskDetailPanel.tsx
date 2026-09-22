@@ -866,6 +866,7 @@ export default function TaskDetailPanel({ task, onUpdate }: TaskDetailPanelProps
       {showOrderView && (
         <OrderQuickView
           orderId={displayedTask.entityId}
+          entityType={displayedTask.entityType || "ORDER"}
           onClose={() => setShowOrderView(false)}
         />
       )}

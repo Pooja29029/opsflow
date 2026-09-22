@@ -2470,6 +2470,7 @@ export default function MyWorkBoard({ currentUser }: { currentUser: CurrentUser 
             key={selectedTask.id}
             variant="inline"
             orderId={selectedTask.entityId}
+            entityType={selectedTask.entityType || "ORDER"}
             onClose={() => setSelectedTask(null)}
           />
         )
@@ -2525,6 +2526,7 @@ export default function MyWorkBoard({ currentUser }: { currentUser: CurrentUser 
         ) : (
           <OrderQuickView
             orderId={selectedTask.entityId}
+            entityType={selectedTask.entityType || "ORDER"}
             onClose={() => setSelectedTask(null)}
           />
         )
