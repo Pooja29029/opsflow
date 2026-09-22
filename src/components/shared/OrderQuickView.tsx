@@ -163,7 +163,24 @@ export default function OrderQuickView({ orderId, onClose, variant = "modal", en
         <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-800 shrink-0">
           <div>
             <div className="flex items-center gap-2">
-              <h2 className="text-sm font-semibold text-white">Order #{orderId}</h2>
+              {/* The order # itself is the shortcut into the console — no
+                  copy-pasting the number elsewhere, no separate button. */}
+              {labstackConsoleUrl(entityType, orderId) ? (
+                <a
+                  href={labstackConsoleUrl(entityType, orderId)!}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title="Open in LabStack Console"
+                  className="text-sm font-semibold text-white hover:text-blue-300 hover:underline inline-flex items-center gap-1"
+                >
+                  Order #{orderId}
+                  <svg className="w-3 h-3 opacity-70" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                  </svg>
+                </a>
+              ) : (
+                <h2 className="text-sm font-semibold text-white">Order #{orderId}</h2>
+              )}
               {order && (
                 <span className={`text-[10px] font-semibold ${ORDER_STATUS_COLOR[order.orderStatus] ?? "text-zinc-400"}`}>
                   {order.orderStatus}
@@ -172,19 +189,6 @@ export default function OrderQuickView({ orderId, onClose, variant = "modal", en
             </div>
             {order && (
               <p className="text-xs text-zinc-500 mt-0.5">{order.orderType.replace(/_/g, " ")}</p>
-            )}
-            {labstackConsoleUrl(entityType, orderId) && (
-              <a
-                href={labstackConsoleUrl(entityType, orderId)!}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 text-[11px] text-blue-400 hover:text-blue-300 hover:underline mt-1.5"
-              >
-                Open in Console
-                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                </svg>
-              </a>
             )}
           </div>
           <button
