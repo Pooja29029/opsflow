@@ -144,14 +144,24 @@ export async function fetchSourceSample(
     const apptIds = Array.from(
       new Set(rows.map((r) => idNum(r[source.primaryKeyField])).filter((n) => n > 0)),
     );
+    // AppointmentAuditEntry is optional across source snapshots (see the
+    // matching guard in /api/appointments/[id]) — check with to_regclass
+    // (never throws) before querying it, so a snapshot that lacks the table
+    // degrades to "no audit store data" (falls through to the patient's home
+    // store below) instead of throwing and skipping this entire poll source.
     if (apptIds.length > 0) {
-      const entries = await client.$queryRaw<Array<{ appointment_id: number; store_id: number }>>(Prisma.sql`
-        SELECT DISTINCT ON (appointment_id) appointment_id, store_id
-        FROM public."AppointmentAuditEntry"
-        WHERE appointment_id IN (${Prisma.join(apptIds)}) AND store_id IS NOT NULL
-        ORDER BY appointment_id, (action = 'Created') DESC, "createdAt" ASC
-      `);
-      for (const e of entries) apptAuditStoreById.set(Number(e.appointment_id), Number(e.store_id));
+      const [{ present }] = await client.$queryRaw<Array<{ present: boolean }>>(
+        Prisma.sql`SELECT to_regclass('public."AppointmentAuditEntry"') IS NOT NULL AS present`,
+      );
+      if (present) {
+        const entries = await client.$queryRaw<Array<{ appointment_id: number; store_id: number }>>(Prisma.sql`
+          SELECT DISTINCT ON (appointment_id) appointment_id, store_id
+          FROM public."AppointmentAuditEntry"
+          WHERE appointment_id IN (${Prisma.join(apptIds)}) AND store_id IS NOT NULL
+          ORDER BY appointment_id, (action = 'Created') DESC, "createdAt" ASC
+        `);
+        for (const e of entries) apptAuditStoreById.set(Number(e.appointment_id), Number(e.store_id));
+      }
     }
   }
 
