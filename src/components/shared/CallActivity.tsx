@@ -11,6 +11,7 @@ interface CallLogEntry {
   triggeredFrom: string | null;
   recordingUrl: string | null;
   durationSec: number | null;
+  transcript: string | null;
   createdAt: string;
   user: { id: number; name: string } | null;
 }
@@ -47,6 +48,7 @@ export default function CallActivity({ taskId }: { taskId: number }) {
   const [calls, setCalls] = useState<CallLogEntry[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [playingId, setPlayingId] = useState<number | null>(null);
+  const [transcriptOpenId, setTranscriptOpenId] = useState<number | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -112,6 +114,26 @@ export default function CallActivity({ taskId }: { taskId: number }) {
               )}
               {isPlaying && call.recordingUrl && (
                 <audio controls autoPlay src={call.recordingUrl} className="w-full mt-2 h-8" />
+              )}
+              {call.recordingUrl && (
+                call.transcript ? (
+                  <div className="mt-2">
+                    <button
+                      type="button"
+                      onClick={() => setTranscriptOpenId(transcriptOpenId === call.id ? null : call.id)}
+                      className="text-xs text-zinc-400 hover:text-zinc-200 transition-colors"
+                    >
+                      {transcriptOpenId === call.id ? "Hide transcript" : "View transcript"}
+                    </button>
+                    {transcriptOpenId === call.id && (
+                      <p className="text-xs text-zinc-400 leading-relaxed whitespace-pre-wrap bg-zinc-800/60 rounded px-2.5 py-2 mt-1.5">
+                        {call.transcript}
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <div className="text-[11px] text-zinc-600 mt-2">Transcribing…</div>
+                )
               )}
             </div>
           );

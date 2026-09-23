@@ -158,6 +158,11 @@ model CallLog {
   // that wasn't ready yet on the status webhook (recording URLs generate
   // 45s-few min after the call ends). Capped in callRecordingSweep.ts.
   recordingCheckAttempts Int @default(0)
+  // Self-hosted Whisper transcript of recordingUrl, filled in by
+  // transcriptionSweep.ts once a recording exists. Null while pending/
+  // unavailable (Exotel has no transcription of its own — see that file).
+  transcript         String? @db.Text
+  transcriptAttempts Int     @default(0)
   createdAt      DateTime   @default(now())
   updatedAt      DateTime   @updatedAt
 

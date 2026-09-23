@@ -40,6 +40,7 @@ export async function GET(
       triggeredFrom: true,
       recordingUrl: true,
       durationSec: true,
+      transcript: true,
       createdAt: true,
       user: { select: { id: true, name: true } },
     },
